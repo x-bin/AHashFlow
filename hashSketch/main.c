@@ -1,5 +1,5 @@
 //
-//  AElastic.c
+//  main.c
 //  hashSketch
 //
 //  Created by 熊斌 on 2020/1/7.
@@ -8,7 +8,8 @@
 
 #include <stdio.h>
 
-int main()
-{
-    
+int main(int argc, const char * argv[]) {
+    // insert code here...
+    printf("Hello, World!\n");
+    return 0;
 }
