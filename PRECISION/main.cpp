@@ -90,7 +90,7 @@ int main(int argc, const char * argv[]) {
                         int R = rand() % new_value;
                         if(R == 0){
                             //cout<<middle_item->carry_idx<<"  "<<middle_item->carry_mean<<endl;
-                            replace_times ++;
+                            //replace_times ++;
                             table[middle_item->carry_idx].flowid = flowid;
                             table[middle_item->carry_idx].count = new_value;
                         }
