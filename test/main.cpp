@@ -8,9 +8,10 @@
 #include <iostream>
 #include <string>
 #include <map>
+#include <math.h>
 using namespace std;
 int main(){
-    map<string, int> mymap;
+   /* map<string, int> mymap;
     mymap["a"] = 1;
     mymap["b"] = 2;
     mymap["a"] = 3;
@@ -34,6 +35,11 @@ int main(){
     cout<<x<<endl;
     if(mymap.find("a") == mymap.end()){
         cout<<"It doesn't exist!"<<endl;
+    }*/
+    int y = (int) pow(2,ceil(log(23)/log(2))) ;
+    for (int i = 0; i < 100; i++){
+        cout<<rand()%y<<endl;
     }
+    cout<<y<<endl;
 }
 
