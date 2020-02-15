@@ -110,9 +110,12 @@ void SpaceSaving::Process(const string element) {
   int index;
   if (!map_->Find(element, &index)) {
     Child* bucket = smallest_->child_;
+      printf("d");
     map_->Remove(bucket->element_);
+      printf("e");
     bucket->element_ = element;
     map_->Insert(element, bucket);
+      printf("f");
     Increment(bucket);
   } else {
     Increment(map_->values_[index]);

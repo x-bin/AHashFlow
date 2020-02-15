@@ -24,6 +24,7 @@ class HashMap {
   Child** values_;
   int size_;
   int half_;
+  bool full;
   CRC::Parameters<crcpp_uint32, 32> hash1 = { 0x04C11DB7, 0, 0xFFFFFFFF, false, false };
 };
 

@@ -36,6 +36,7 @@ int main(int argc, const char * argv[]) {
     cout<<"read success!"<<endl;
     SpaceSaving * space_saving = new SpaceSaving(TABLE_SIZE);
     for(int i = 0; i < n_pkts; i++){
+        cout<<i<<endl;
         space_saving -> Process(pkt_list[i]);
     }
 }

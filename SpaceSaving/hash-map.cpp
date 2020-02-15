@@ -12,6 +12,7 @@ HashMap::HashMap(const int size) {
   keys_ = new string[size_];
   values_ = new Child*[size_];
   half_ = size_ / 2;
+  full = false;
   for (int i = 0; i < size_; ++i) {
     keys_[i] = "0";
   }
@@ -38,15 +39,20 @@ void HashMap::Remove(const string key) {
       return;
   uint32_t fingerprint = CRC::Calculate(key.c_str(), key.length(), hash1);
   int i = fingerprint % size_;
+    printf("g");
   while (keys_[i] != key) {
     i = (i == size_ - 1) ? 0 : i + 1;
   }
+    printf("z");
   keys_[i] = "0";
+  if(full)
+      return;
   // Fill in the deletion gap.
   int j = (i == size_ - 1) ? 0 : i + 1;
+  int st = j;
   while (keys_[j] != "0") {
     uint32_t fingerprint_j = CRC::Calculate(keys_[j].c_str(), keys_[j].length(), hash1);
-    int dis = (fingerprint_j % size_) - i;
+    /*int dis = (fingerprint_j % size_) - i;
     if (dis < -half_) dis += size_;
     if (dis > half_) dis -= size_;
     if (dis <= 0) {
@@ -54,14 +60,29 @@ void HashMap::Remove(const string key) {
       values_[i] = values_[j];
       keys_[j] = "0";
       i = j;
-    }
+    }*/
+      
+      if(j==st)
+      {
+          full = true;
+          break;
+      }
+      if(fingerprint_j != j){
+          keys_[i] = keys_[j];
+          values_[i] = values_[j];
+          keys_[j] = "0";
+          i = j;
+      }
+      //printf("%d\n",j);*/
     j = (j == size_ - 1) ? 0 : j + 1;
+      
   }
 }
 
 bool HashMap::Find(const string key, int* index) {
   uint32_t fingerprint = CRC::Calculate(key.c_str(), key.length(), hash1);
   int i = fingerprint % size_;
+  int st = i;
   while (true) {
     if (keys_[i] == "0") {
       return false;
@@ -71,6 +92,8 @@ bool HashMap::Find(const string key, int* index) {
       return true;
     }
     i = (i == size_ - 1) ? 0 : i + 1;
+    if(st == i)
+        return false;
   }
   return false;
 }
