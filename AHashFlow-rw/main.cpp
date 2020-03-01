@@ -1,17 +1,20 @@
 //
 //  main.cpp
-//  HashPipe
+//  AHashFlow-rw
 //
-//  Created by 熊斌 on 2020/1/12.
+//  Created by 熊斌 on 2020/2/29.
 //  Copyright © 2020 熊斌. All rights reserved.
 //
 
+
 #include <iostream>
 #include <fstream>
-#include <string>
 #include <sstream>
+#include <string>
+#include <math.h>
 #include <time.h>
 #include "../Utils/CRC.h"
+
 using namespace std;
 
 
@@ -21,35 +24,47 @@ typedef struct {
 }item;
 
 typedef struct {
-    uint32_t fingerprint;
+    uint8_t digest;
+    uint8_t cnt;
+}A_item;
+
+typedef struct{
     string fingerprint_str;
+    uint32_t fingerprint;
     int count;
+    int carry_min;
+    int min_idx;
+    int carry_max;
+    int max_idx;
 }mid_val;
 
-
-#define TABLE1_SIZE 8192
+#define TABLE1_SIZE 16384
 #define TABLE2_SIZE 8192
-#define TABLE3_SIZE 8192
-#define TABLE4_SIZE 8192
-#define TABLE_NUM 4
-
+#define TABLE3_SIZE 2048
+#define A_SIZE 16384
+#define B_SIZE 16384
+#define FINGERPRINT_MASK 0xffffffff
+#define A_CNT_MASK 0xff
+#define DIGEST_MASK 0xff
+#define B_MASK 0xffff
+#define GAMMA 5
 
 int n_pkts = 20000000;
 //需要处理的 flowid 列表
 string * pkt_list;
 item * table;
+A_item * A_table;
+uint16_t * B_table;
+
 int count1 = 0;
 
-
-
-
-
+uint32_t M_hash_value;
 
 //读取 json 文件到 pkt_list
 bool read_json_file(string filename);
 bool read_hgc_file(string filename);
 //更新三个子表的函数
-mid_val * update(mid_val middle_item, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod);
+mid_val * update(mid_val middle_value, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod);
 
 
 int main(int argc, const char * argv[]) {
@@ -73,57 +88,82 @@ int main(int argc, const char * argv[]) {
         if(!read_hgc_file(filename)){
             return 0;
         }
-        table = new item[TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE+TABLE4_SIZE];
-        for(int i = 0; i < TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE+TABLE4_SIZE; i++){
+        table = new item[TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE];
+        for(int i = 0; i < TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE; i++){
             table[i].fingerprint = 0;
             table[i].count = 0;
         }
-        //定义 5 个 hash 函数
+        A_table = new A_item[A_SIZE];
+        for(int i = 0; i < A_SIZE; i++){
+            A_table[i].digest = 0;
+            A_table[i].cnt = 0;
+        }
+        B_table = new uint16_t[B_SIZE];
+        for(int i = 0; i < B_SIZE; i++){
+            B_table[i] = 0;
+        }
+        //定义 6 个 hash 函数
         CRC::Parameters<crcpp_uint32, 32> hash1 = { 0x04C11DB7, 0, 0xFFFFFFFF, false, false };
         CRC::Parameters<crcpp_uint32, 32> hash2 = { 0x1EDC6F41, 0, 0xFFFFFFFF, false, false };
         CRC::Parameters<crcpp_uint32, 32> hash3 = { 0xA833982B, 0, 0xFFFFFFFF, false, false };
         CRC::Parameters<crcpp_uint32, 32> hash4 = { 0x814141AB, 0, 0xFFFFFFFF, false, false };
         CRC::Parameters<crcpp_uint32, 32> hash5 = { 0x5A0849E7, 0, 0xFFFFFFFF, false, false };
-        
+        CRC::Parameters<crcpp_uint32, 32> hash6 = { 0x28BA08BB, 0, 0xFFFFFFFF, false, false };
         clock_t st_time = clock();
-
+        //int replace_times = 0;
         for(int i = 0; i < n_pkts; i++){
             string flowid = pkt_list[i];
-            uint32_t fingerprint = CRC::Calculate(flowid.c_str(), flowid.length(), hash5);
-            
+            mid_val first_value;
+            uint32_t fingerprint = CRC::Calculate(pkt_list[i].c_str(), pkt_list[i].length(), hash5) & FINGERPRINT_MASK;
             stringstream ss;
             ss << fingerprint;
             string fingerprint_str = ss.str();
-            uint32_t hash_value =CRC::Calculate(fingerprint_str.c_str(), fingerprint_str.length(), hash1);
-            int idx1 = hash_value % TABLE1_SIZE;
-            
-            if(table[idx1].fingerprint == 0 && table[idx1].count == 0){
-                table[idx1].fingerprint = fingerprint;
-                table[idx1].count = 1;
-                //cout<<flowid<<"  1  yes"<<endl;
-            }
-            else if(table[idx1].fingerprint == fingerprint){
-                table[idx1].count +=1;
-               // cout<<flowid<<"  "<<table[idx1].count<<"  plus"<<endl;
-            }
-            else{
-                mid_val stage1_item;
-                stage1_item.fingerprint = table[idx1].fingerprint;
-                stringstream ss1;
-                ss1 << stage1_item.fingerprint;
-                string fingerprint_str1 = ss1.str();
-                stage1_item.fingerprint_str = fingerprint_str1;
-                stage1_item.count = table[idx1].count;
-                
-                table[idx1].fingerprint = fingerprint;
-                table[idx1].count = 1;
-                mid_val * middle_item = update(stage1_item, hash2, TABLE1_SIZE, TABLE2_SIZE);
+            first_value.fingerprint_str = fingerprint_str;
+            first_value.fingerprint = fingerprint;
+            first_value.count = 1;
+            first_value.min_idx = 0;
+            first_value.carry_min = n_pkts;
+            first_value.max_idx = 0;
+            first_value.carry_max = 0;
+            mid_val * middle_item = update(first_value, hash1, 0, TABLE1_SIZE);
+            if(middle_item != 0){
+                middle_item = update(*middle_item, hash2, TABLE1_SIZE, TABLE2_SIZE);
                 if(middle_item != 0){
                     //cout<<"After 2: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
                     middle_item = update(*middle_item, hash3, TABLE1_SIZE + TABLE2_SIZE, TABLE3_SIZE);
                     if(middle_item != 0){
                         //cout<<"After 3: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
-                        middle_item = update(*middle_item, hash4, TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE, TABLE4_SIZE);
+                        uint16_t cnt_max = middle_item->carry_max & B_MASK;
+                        uint32_t idx4 = CRC::Calculate(middle_item->fingerprint_str.c_str(), middle_item->fingerprint_str.length(), hash4) % A_SIZE;
+                        uint8_t digest = M_hash_value & DIGEST_MASK;
+                        if(A_table[idx4].digest == 0 && A_table[idx4].cnt == 0){
+                            A_table[idx4].digest = digest;
+                            A_table[idx4].cnt = 1;
+                            B_table[idx4] = cnt_max;
+                        }
+                        else if(A_table[idx4].digest == digest){
+                            uint8_t temp_value = A_table[idx4].cnt + 1;
+                            if(temp_value > middle_item->carry_min){
+                                table[middle_item->min_idx].fingerprint = middle_item->fingerprint;
+                                table[middle_item->min_idx].count = temp_value;
+                                A_table[idx4].digest = 0;
+                                A_table[idx4].cnt = 0;
+                            }
+                            else if(temp_value > GAMMA && cnt_max == B_table[idx4]){
+                                table[middle_item->max_idx].fingerprint = middle_item->fingerprint;
+                                table[middle_item->max_idx].count = temp_value;
+                                A_table[idx4].digest = 0;
+                                A_table[idx4].cnt = 0;
+                            }
+                            else{
+                                A_table[idx4].cnt = temp_value;
+                            }
+                        }
+                        else{
+                                A_table[idx4].digest = digest;
+                                A_table[idx4].cnt = 1;
+                                B_table[idx4] = cnt_max;
+                        }
                     }
                 }
             }
@@ -133,8 +173,10 @@ int main(int argc, const char * argv[]) {
         cout<<"程序运行时间为 "<<real_time<<" 秒。"<<endl;
         delete [] pkt_list;
         delete [] table;
+        delete [] A_table;
+        delete [] B_table;
     }
-
+    //cout<<"Replace times: "<<replace_times<<endl;
 }
 
 
@@ -322,13 +364,16 @@ bool read_hgc_file(string filename){
     return true;
 }
 
-mid_val * update(mid_val middle_item, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod){
+
+
+
+mid_val * update(mid_val middle_value, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod){
+    //clock_t func_begin = clock();
     mid_val * res = 0;
-    int count = middle_item.count;
-    uint32_t fingerprint = middle_item.fingerprint;
-    
-    uint32_t hash_value =CRC::Calculate(middle_item.fingerprint_str.c_str(), middle_item.fingerprint_str.length(), hash);
-    int idx = hash_value % mod + base;
+    uint32_t fingerprint = middle_value.fingerprint;
+    int count = middle_value.count;
+    uint32_t temp = CRC::Calculate(middle_value.fingerprint_str.c_str(), middle_value.fingerprint_str.length(), hash);
+    int idx = temp % mod + base;
     
     if(table[idx].fingerprint == 0 && table[idx].count == 0){
         table[idx].fingerprint = fingerprint;
@@ -338,21 +383,31 @@ mid_val * update(mid_val middle_item, CRC::Parameters<crcpp_uint32, 32> hash, in
         table[idx].count += count;
     }
     else{
+        M_hash_value = temp;
         res = new mid_val;
-        if(table[idx].count < count){
-            res->fingerprint = table[idx].fingerprint;
-            res->count = table[idx].count;
-            stringstream ss;
-            ss << res->fingerprint;
-            res->fingerprint_str = ss.str();
-            table[idx].fingerprint = fingerprint;
-            table[idx].count = count;
+        res->fingerprint_str = middle_value.fingerprint_str;
+        res->fingerprint = fingerprint;
+        res->count = count;
+        if(table[idx].count < middle_value.carry_min){
+            res->carry_min = table[idx].count;
+            res->min_idx = idx;
         }
         else{
-            res->fingerprint = fingerprint;
-            res->fingerprint_str = middle_item.fingerprint_str;
-            res->count = count;
+            res->carry_min = middle_value.carry_min;
+            res->min_idx = middle_value.min_idx;
+        }
+        if(table[idx].count > middle_value.carry_max){
+            res->carry_max = table[idx].count;
+            res->max_idx = idx;
+        }
+        else{
+            res->carry_max = middle_value.carry_max;
+            res->max_idx = middle_value.max_idx;
         }
     }
+    /*
+    clock_t end_time = clock();
+    func_time += ((double)(end_time - func_begin)) / CLOCKS_PER_SEC;*/
     return res;
 }
+
