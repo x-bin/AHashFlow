@@ -58,7 +58,8 @@ uint16_t * B_table;
 int count1 = 0;
 
 uint32_t M_hash_value;
-
+long long fit_times = 0;
+long long diff_times = 0;
 
 //读取 json 文件到 pkt_list
 bool read_json_file(string filename);
@@ -68,25 +69,27 @@ mid_val * update(mid_val middle_value, CRC::Parameters<crcpp_uint32, 32> hash, i
 
 
 int main(int argc, const char * argv[]) {
-    for(int index = 1; index < 2; index ++){
+    for(int index = 0; index < 11; index ++){
+        fit_times = 0;
+        diff_times = 0;
         count1 = 0;
         //读取 json 文件
         string filename = "/Users/xiongbin/CAIDA/CAIDA.equinix-nyc.dirA.20180315-125910.UTC.anon.clean.json";
-        filename = "/Users/xiongbin/CAIDA/HGC.20080415000.dict.json";
-        /*
+        //filename = "/Users/xiongbin/CAIDA/HGC.20080415000.dict.json";
+        
         if(index == 1){
             filename = "/Users/xiongbin/CAIDA/trace1.json";
         }
-        else{
+        else if (index != 0){
             stringstream s1;
             s1 << index;
             string temp_str = s1.str();
             filename = "/Users/xiongbin/CAIDA/trace" + temp_str;
-        }*/
+        }
         cout<<"第 "<<index<<" 次统计开始。文件名为："<<filename<<endl;
         
         pkt_list = new string[n_pkts];
-        if(!read_hgc_file(filename)){
+        if(!read_json_file(filename)){
             return 0;
         }
         table = new item[TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE];
@@ -126,13 +129,17 @@ int main(int argc, const char * argv[]) {
             first_value.carry_min = n_pkts;
             first_value.max_idx = 0;
             first_value.carry_max = 0;
+            fit_times += 1;
             mid_val * middle_item = update(first_value, hash1, 0, TABLE1_SIZE);
             if(middle_item != 0){
+                fit_times += 1;
                 middle_item = update(*middle_item, hash2, TABLE1_SIZE, TABLE2_SIZE);
                 if(middle_item != 0){
+                    fit_times += 1;
                     //cout<<"After 2: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
                     middle_item = update(*middle_item, hash3, TABLE1_SIZE + TABLE2_SIZE, TABLE3_SIZE);
                     if(middle_item != 0){
+                        fit_times += 1;
                         //cout<<"After 3: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
                         uint16_t cnt_max = middle_item->carry_max & B_MASK;
                         uint32_t idx4 = CRC::Calculate(middle_item->fingerprint_str.c_str(), middle_item->fingerprint_str.length(), hash4) % A_SIZE;
@@ -161,6 +168,7 @@ int main(int argc, const char * argv[]) {
                             }
                         }
                         else{
+                            diff_times += 1;
                             int new_value = (int) pow(2,ceil(log(A_table[idx4].cnt)/log(2)));
                             if(new_value == 0)
                             {
@@ -180,6 +188,8 @@ int main(int argc, const char * argv[]) {
         clock_t end_time = clock();
         double real_time = ((double)(end_time - st_time)) / CLOCKS_PER_SEC;
         cout<<"程序运行时间为 "<<real_time<<" 秒。"<<endl;
+        cout<<"总计匹配次数： "<<fit_times<<"  平均匹配次数： "<<((double)fit_times) / ((double)n_pkts)<<endl;
+        cout<<"总计替换次数： "<<diff_times<<"  平均替换次数： "<<((double)diff_times) / ((double)n_pkts)<<endl;
         delete [] pkt_list;
         delete [] table;
         delete [] A_table;

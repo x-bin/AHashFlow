@@ -5,7 +5,13 @@
 //  Created by 熊斌 on 2020/1/7.
 //  Copyright © 2020 熊斌. All rights reserved.
 //
-
+#define _GNU_SOURCE
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+#include<sched.h>
+#include<unistd.h>
+#include<pthread.h>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -57,6 +63,7 @@ uint32_t thresh = 8;
 //统计 flowid 以及出现对应数据包数量
 map<string,int> flows;
 
+long long fit_times = 0;
 
 //********************//
 //*****函数声明部分*****//
@@ -76,12 +83,13 @@ void get_flows(CRC::Parameters<crcpp_uint32, 32> hash, CRC::Parameters<crcpp_uin
 //main 函数
 int main(){
     
-    for(int index = 1; index < 2; index ++){
+    for(int index = 1; index < 11; index ++){
+        fit_times = 0;
         //读取 json 文件
         count1 = 0;
         string filename = "/Users/xiongbin/CAIDA/CAIDA.equinix-nyc.dirA.20180315-125910.UTC.anon.clean.json";
-        filename = "/Users/xiongbin/CAIDA/HGC.20080415000.dict.json";
-        /*
+        //filename = "/Users/xiongbin/CAIDA/HGC.20080415000.dict.json";
+        
         if(index == 1){
             filename = "/Users/xiongbin/CAIDA/trace1.json";
         }
@@ -90,10 +98,10 @@ int main(){
             s1 << index;
             string temp_str = s1.str();
             filename = "/Users/xiongbin/CAIDA/trace" + temp_str;
-        }*/
+        }
         cout<<"第 "<<index<<" 次统计开始。文件名为："<<filename<<endl;
         pkt_list = new string[n_pkts];
-        if(!read_hgc_file(filename)){
+        if(!read_json_file(filename)){
             return 0;
         }
         //定义 5 个 hash 函数
@@ -132,13 +140,16 @@ int main(){
             first_item.fingerprint = fingerprint;
             first_item.fingerprint_str = fingerprint_str;
             first_item.count = 1;
+            fit_times += 1;
             mid_val * middle_item = update(first_item,hash1,0,HEAVY_PART_1_SIZE);
             if(middle_item != 0){
+                fit_times += 1;
                 middle_item = update(*middle_item,hash2,HEAVY_PART_1_SIZE,HEAVY_PART_2_SIZE);
                 if(middle_item != 0){
+                    fit_times += 1;
                     middle_item = update(*middle_item, hash3, HEAVY_PART_1_SIZE+HEAVY_PART_2_SIZE, HEAVY_PART_3_SIZE);
                     if(middle_item != 0){
-                        
+                        fit_times += 1;
                         uint32_t hash_value =CRC::Calculate(middle_item->fingerprint_str.c_str(), middle_item->fingerprint_str.length(), hash4);
                         int idx = hash_value % LIGHT_PART_SIZE;
                         light[idx] =(uint8_t) ((light[idx] + middle_item->count) & LIGHT_CNT_MASK);
@@ -149,6 +160,7 @@ int main(){
         clock_t end_time = clock();
         double real_time = ((double)(end_time - st_time)) / CLOCKS_PER_SEC;
         cout<<"程序运行时间为 "<<real_time<<" 秒。"<<endl;
+        cout<<"总计匹配次数： "<<fit_times<<"  平均匹配次数： "<<((double)fit_times) / ((double)n_pkts)<<endl;
         delete [] pkt_list;
         for(int i=0;i<(HEAVY_PART_1_SIZE+HEAVY_PART_2_SIZE+HEAVY_PART_3_SIZE);i++){
             delete [] heavy[i];
