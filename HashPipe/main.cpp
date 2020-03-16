@@ -1,8 +1,8 @@
 //
 //  main.cpp
-//  HashPipe
+//  HashPipeNew
 //
-//  Created by 熊斌 on 2020/1/12.
+//  Created by 熊斌 on 2020/3/13.
 //  Copyright © 2020 熊斌. All rights reserved.
 //
 
@@ -14,185 +14,41 @@
 #include "../Utils/CRC.h"
 using namespace std;
 
-
-typedef struct {
-    uint32_t fingerprint;
-    int count;
-}item;
-
-typedef struct {
-    uint32_t fingerprint;
-    string fingerprint_str;
-    int count;
-}mid_val;
-
-
 #define TABLE1_SIZE 8192
 #define TABLE2_SIZE 8192
 #define TABLE3_SIZE 8192
 #define TABLE4_SIZE 8192
-#define TABLE_NUM 4
+#define FINGERPRINT_MASK 0xFFFFFFFF
+#define hash1 0x04C11DB7
+#define hash2 0x1EDC6F41
+#define hash3 0xA833982B
+#define hash4 0x814141AB
 
+CRC::Parameters<crcpp_uint32, 32> hash5 = { 0x5a0849e7, 0, 0xFFFFFFFF, false, false };
 
-int n_pkts = 20000000;
+int n_pkts = 40000000;
 //需要处理的 flowid 列表
-string * pkt_list;
-item * table;
-int count1 = 0;
+uint32_t * fp_list;
+uint32_t ** table;
 
 long long fit_times = 0;
 
 
-
-
-//读取 json 文件到 pkt_list
-bool read_json_file(string filename);
-bool read_hgc_file(string filename);
-//更新三个子表的函数
-mid_val * update(mid_val middle_item, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod);
-
-
-int main(int argc, const char * argv[]) {
-    for(int index = 0; index < 11; index ++){
-        fit_times = 0;
-        count1 = 0;
-        //读取 json 文件
-        string filename = "/Users/xiongbin/CAIDA/CAIDA.equinix-nyc.dirA.20180315-125910.UTC.anon.clean.json";
-        //filename = "/Users/xiongbin/CAIDA/HGC.20080415000.dict.json";
-        
-        if(index == 1){
-            filename = "/Users/xiongbin/CAIDA/trace1.json";
-        }
-        else if (index != 0){
-            stringstream s1;
-            s1 << index;
-            string temp_str = s1.str();
-            filename = "/Users/xiongbin/CAIDA/trace" + temp_str;
-        }
-        cout<<"第 "<<index<<" 次统计开始。文件名为："<<filename<<endl;
-        pkt_list = new string[n_pkts];
-        if(!read_json_file(filename)){
-            return 0;
-        }
-        table = new item[TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE+TABLE4_SIZE];
-        for(int i = 0; i < TABLE1_SIZE+TABLE2_SIZE+TABLE3_SIZE+TABLE4_SIZE; i++){
-            table[i].fingerprint = 0;
-            table[i].count = 0;
-        }
-        //定义 5 个 hash 函数
-        CRC::Parameters<crcpp_uint32, 32> hash1 = { 0x04C11DB7, 0, 0xFFFFFFFF, false, false };
-        CRC::Parameters<crcpp_uint32, 32> hash2 = { 0x1EDC6F41, 0, 0xFFFFFFFF, false, false };
-        CRC::Parameters<crcpp_uint32, 32> hash3 = { 0xA833982B, 0, 0xFFFFFFFF, false, false };
-        CRC::Parameters<crcpp_uint32, 32> hash4 = { 0x814141AB, 0, 0xFFFFFFFF, false, false };
-        CRC::Parameters<crcpp_uint32, 32> hash5 = { 0x5A0849E7, 0, 0xFFFFFFFF, false, false };
-        
-        clock_t st_time = clock();
-
-        for(int i = 0; i < n_pkts; i++){
-            string flowid = pkt_list[i];
-            uint32_t fingerprint = CRC::Calculate(flowid.c_str(), flowid.length(), hash5);
-            
-            stringstream ss;
-            ss << fingerprint;
-            string fingerprint_str = ss.str();
-            uint32_t hash_value =CRC::Calculate(fingerprint_str.c_str(), fingerprint_str.length(), hash1);
-            int idx1 = hash_value % TABLE1_SIZE;
-            fit_times += 1;
-            if(table[idx1].fingerprint == 0 && table[idx1].count == 0){
-                table[idx1].fingerprint = fingerprint;
-                table[idx1].count = 1;
-                //cout<<flowid<<"  1  yes"<<endl;
-            }
-            else if(table[idx1].fingerprint == fingerprint){
-                table[idx1].count +=1;
-               // cout<<flowid<<"  "<<table[idx1].count<<"  plus"<<endl;
-            }
-            else{
-                mid_val stage1_item;
-                stage1_item.fingerprint = table[idx1].fingerprint;
-                stringstream ss1;
-                ss1 << stage1_item.fingerprint;
-                string fingerprint_str1 = ss1.str();
-                stage1_item.fingerprint_str = fingerprint_str1;
-                stage1_item.count = table[idx1].count;
-                
-                table[idx1].fingerprint = fingerprint;
-                table[idx1].count = 1;
-                fit_times += 1;
-                mid_val * middle_item = update(stage1_item, hash2, TABLE1_SIZE, TABLE2_SIZE);
-                if(middle_item != 0){
-                    fit_times += 1;
-                    //cout<<"After 2: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
-                    middle_item = update(*middle_item, hash3, TABLE1_SIZE + TABLE2_SIZE, TABLE3_SIZE);
-                    if(middle_item != 0){
-                        fit_times += 1;
-                        //cout<<"After 3: "<<middle_item->flowid<<"  "<<middle_item->count<<endl;
-                        middle_item = update(*middle_item, hash4, TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE, TABLE4_SIZE);
-                    }
-                }
-            }
-        }
-        clock_t end_time = clock();
-        double real_time = ((double)(end_time - st_time)) / CLOCKS_PER_SEC;
-        cout<<"程序运行时间为 "<<real_time<<" 秒。"<<endl;
-        cout<<"总计匹配次数： "<<fit_times<<"  平均匹配次数： "<<((double)fit_times) / ((double)n_pkts)<<endl;
-        delete [] pkt_list;
-        delete [] table;
-    }
-
-}
-
-
-
-//读取 json 文件到 pkt_list
-bool read_json_file(string filename){
+bool new_read_json_file(string filename){
     ifstream file(filename);
     if(!file.is_open()){
         cout<<"Can't open the file!"<<endl;
         return false;
     }
     int count = 0;
-    while(count < n_pkts && !file.eof()){
-        char c;
-        bool flag_begin = false;
-        bool flag_end = false;
-        
-        //找到每一个 flowid 开始的地方
-        //并设置 flag_begin 为 true
-        while(!flag_begin){
-            file >> c;
-            if(file.eof())
-                break;
-            if(c=='"'){
-                flag_begin = true;
-            }
-        }
-        if(file.eof())
-        break;
-        
-        //将 flowid 保存到 pkt_list[count] 中
-        while(!flag_end){
-            file >> c;
-            if(file.eof())
-                break;
-            if(c=='"'){
-                flag_end = true;
-            }
-            else if (c == 't' || c == '\\'){
-                if(c=='t'){
-                    pkt_list[count].append(1,'\t');
-                }
-            }
-            else{
-                pkt_list[count].append(1, c);
-            }
-        }
-        //如果添加成功
-        if(pkt_list[count].length()!=0){
+    int len = 1000;
+    char * temp = new char[len];
+    while (file.getline(temp, len) && count < n_pkts) {
+        string temp_str = temp;
+        if(temp_str.length() != 0){
+            fp_list[count] = CRC::Calculate(temp_str.c_str(), temp_str.length(), hash5) & FINGERPRINT_MASK;
             count ++;
         }
-        if(file.eof())
-        break;
     }
     if(count!=n_pkts){
         cout<<"File "<<filename<<" don't have "<<n_pkts<<" packets!"<<endl;
@@ -203,161 +59,143 @@ bool read_json_file(string filename){
     //test
     /*
     for(int i = 0; i < n_pkts; i++){
-        cout<<pkt_list[i]<<endl;
-        cout<<pkt_list[i].length()<<endl;
+        cout<<fp_list[i]<<endl;
     }*/
     return true;
 }
 
-//读取 json 文件到 pkt_list
-bool read_hgc_file(string filename){
-    ifstream file(filename);
-    if(!file.is_open()){
-        cout<<"Can't open the file!"<<endl;
-        return false;
+
+int main(int argc, const char * argv[]) {
+    ofstream out("/Users/xiongbin/Desktop/HashPipe.txt");
+    if(out.fail()){
+        cout<<"error"<<endl;
+        return 0;
     }
-    while(count1 < n_pkts && !file.eof()){
-        char c;
-        bool flag_begin = false;
-        bool flag_end = false;
+    for(int index = 9; index < 11; index ++){
+        fit_times = 0;
+        long long change_times = 0;
         
-        //找到每一个 flowid 开始的地方
-        //并设置 flag_begin 为 true
-        while(!flag_begin){
-            file >> c;
-            if(file.eof())
-                break;
-            if(c=='{'){
-                flag_begin = true;
-            }
+        //文件名称
+        string filename;
+        stringstream s1;
+        s1 << index;
+        string temp_str = s1.str();
+        filename = "/Users/xiongbin/newtrace2/trace" + temp_str;
+        cout<<"第 "<<index<<" 次统计开始。文件名为："<<filename<<endl;
+        
+        //读取指纹数据
+        fp_list = new uint32_t[n_pkts];
+        if(!new_read_json_file(filename)){
+            return 0;
         }
-        if(file.eof())
-        break;
         
-        //将 flowid 保存到 pkt_list[count] 中
-        while(!flag_end){
-            file >> c;
-            if(file.eof())
-                break;
-            if(c=='}'){
-                flag_end = true;
+        //为 table 分配空间
+        table = (uint32_t **) new uint32_t *[TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE + TABLE4_SIZE];
+        for(int i=0; i<(TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE + TABLE4_SIZE);i++){
+            table[i] = (uint32_t *) new uint32_t[2];
+            table[i][0] = 0;
+            table[i][1] = 0;
+        }
+        
+        //开始对每一个数据包进行处理
+        clock_t st_time = clock();
+        for(int i = 0; i < n_pkts; i++){
+            //对第一个表进行处理
+            fit_times += 1;
+            int idx = ((fp_list[i] * hash1) >> 15) % TABLE1_SIZE;
+            if(table[idx][0] == 0){
+                table[idx][0] = fp_list[i];
+                table[idx][1] = 1;
+            }
+            else if(table[idx][0] == fp_list[i]){
+                table[idx][1] += 1;
             }
             else{
-                pkt_list[count1].append(1, c);
-            }
-        }
-        //如果添加成功
-        if(pkt_list[count1].length()!=0){
-            count1 ++;
-        }
-        if(file.eof())
-        break;
-    }
-    file.close();
-    if(count1 < n_pkts){
-        cout<<"File "<<filename<<" don't have "<<n_pkts<<" packets!"<<endl;
-        filename = "/Users/xiongbin/CAIDA/HGC.20080415001.dict.json";
-        ifstream file1(filename);
-        if(!file1.is_open()){
-            cout<<"Can't open the file!"<<endl;
-            return false;
-        }
-        while(count1 < n_pkts && !file1.eof()){
-            char c;
-            bool flag_begin = false;
-            bool flag_end = false;
-            
-            //找到每一个 flowid 开始的地方
-            //并设置 flag_begin 为 true
-            while(!flag_begin){
-                file1 >> c;
-                if(file1.eof())
-                    break;
-                if(c=='{'){
-                    flag_begin = true;
+                change_times ++;
+                uint32_t fp_now = table[idx][0];
+                uint32_t cnt_now = table[idx][1];
+                
+                table[idx][0] = fp_list[i];
+                table[idx][1]= 1;
+                
+                //对第二个表进行处理
+                fit_times += 1;
+                idx = TABLE1_SIZE + ((fp_now * hash2) >> 15) % TABLE2_SIZE;
+                if(table[idx][0] == 0){
+                    table[idx][0] = fp_now;
+                    table[idx][1] = cnt_now;
                 }
-            }
-            if(file1.eof())
-            break;
-            
-            //将 flowid 保存到 pkt_list[count] 中
-            while(!flag_end){
-                file1 >> c;
-                if(file1.eof())
-                    break;
-                if(c=='}'){
-                    flag_end = true;
+                else if(table[idx][0] == fp_now){
+                    table[idx][1] += cnt_now;
                 }
                 else{
-                    pkt_list[count1].append(1, c);
+                    if(table[idx][1] < cnt_now){
+                        change_times ++;
+                        uint32_t fp_tmp = fp_now;
+                        uint32_t cnt_tmp = cnt_now;
+                        fp_now = table[idx][0];
+                        cnt_now = table[idx][1];
+                        table[idx][0] = fp_tmp;
+                        table[idx][1] = cnt_tmp;
+                    }
+                    
+                    //对第三个表进行处理
+                    fit_times += 1;
+                    idx = TABLE1_SIZE + TABLE2_SIZE + ((fp_now * hash3) >> 15) % TABLE3_SIZE;
+                    if(table[idx][0] == 0){
+                        table[idx][0] = fp_now;
+                        table[idx][1] = cnt_now;
+                    }
+                    else if(table[idx][0] == fp_now){
+                        table[idx][1] += cnt_now;
+                    }
+                    else{
+                        if(table[idx][1] < cnt_now){
+                            change_times ++;
+                            uint32_t fp_tmp = fp_now;
+                            uint32_t cnt_tmp = cnt_now;
+                            fp_now = table[idx][0];
+                            cnt_now = table[idx][1];
+                            table[idx][0] = fp_tmp;
+                            table[idx][1] = cnt_tmp;
+                        }
+                        
+                        //对第四个表进行处理
+                        fit_times += 1;
+                        idx = TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE + ((fp_now * hash4) >> 15) % TABLE4_SIZE;
+                        if(table[idx][0] == 0){
+                            table[idx][0] = fp_now;
+                            table[idx][1] = cnt_now;
+                        }
+                        else if(table[idx][0] == fp_now){
+                            table[idx][1] += cnt_now;
+                        }
+                        else{
+                            if(table[idx][1] < cnt_now){
+                                change_times ++;
+                                table[idx][0] = fp_now;
+                                table[idx][1] = cnt_now;
+                            }
+                        }
+                    }
                 }
             }
-            //如果添加成功
-            if(pkt_list[count1].length()!=0){
-                count1 ++;
-            }
-            if(file1.eof())
-            break;
         }
-        file1.close();
+        clock_t end_time = clock();
+        double real_time = ((double)(end_time - st_time)) / CLOCKS_PER_SEC;
+        cout<<"程序运行时间为 "<<real_time<<" 秒。"<<endl;
+        cout<<"吞吐率： "<<((double)n_pkts) / (real_time)<<endl;
+        cout<<"总计匹配次数： "<<fit_times<<"  平均匹配次数： "<<((double)fit_times) / ((double)n_pkts)<<endl;
+        cout<<"总计交换次数： "<<change_times<<"  平均交换次数： "<<((double)change_times) / ((double)n_pkts)<<endl;
+        out<<filename<<"\t"<<real_time<<"\t"<<((double)n_pkts) / (real_time)<<"\t"<<fit_times<<"\t"<<((double)fit_times) / ((double)n_pkts)<<"\t"<<change_times<<"\t"<<((double)change_times) / ((double)n_pkts)<<endl;
+        delete [] fp_list;
+        for(int i=0;i<(TABLE1_SIZE + TABLE2_SIZE + TABLE3_SIZE + TABLE4_SIZE);i++){
+            delete [] table[i];
+        }
+        delete [] table;
     }
-    if(count1 < n_pkts){
-        cout<<"File "<<filename<<" don't have "<<n_pkts<<" packets!"<<endl;
-        n_pkts = count1;
-    }
-    
-    //test
-    
-    for(int i = 0; i < n_pkts; i++){
-        int dstip_pos = (int)pkt_list[i].find("\"dstip\":\"");
-        int proto_pos = (int)pkt_list[i].find("\",\"proto\":\"");
-        int time_pos = (int)pkt_list[i].find("\",\"timestamp\":\"");
-        int srcport_pos = (int)pkt_list[i].find("\",\"srcport\":\"");
-        int srcip_pos = (int)pkt_list[i].find("\",\"srcip\":\"");
-        int dstport_pos = (int)pkt_list[i].find("\",\"dstport\":\"");
-        
-        string dstip = pkt_list[i].substr(dstip_pos + 9, proto_pos - dstip_pos - 9);
-        string proto = pkt_list[i].substr(proto_pos + 11, time_pos - proto_pos - 11);
-        string srcport = pkt_list[i].substr(srcport_pos + 13, srcip_pos - srcport_pos - 13);
-        string srcip = pkt_list[i].substr(srcip_pos + 11, dstport_pos - srcip_pos - 11);
-        string dstport = pkt_list[i].substr(dstport_pos + 13, pkt_list[i].length() - dstport_pos - 14);
-        pkt_list[i] = srcip + '\t' + dstip + '\t' + proto + '\t' + srcport + '\t' + dstport;
-    }
-    cout<<n_pkts<<endl;
-    return true;
+    out.close();
 }
 
-mid_val * update(mid_val middle_item, CRC::Parameters<crcpp_uint32, 32> hash, int base, int mod){
-    mid_val * res = 0;
-    int count = middle_item.count;
-    uint32_t fingerprint = middle_item.fingerprint;
-    
-    uint32_t hash_value =CRC::Calculate(middle_item.fingerprint_str.c_str(), middle_item.fingerprint_str.length(), hash);
-    int idx = hash_value % mod + base;
-    
-    if(table[idx].fingerprint == 0 && table[idx].count == 0){
-        table[idx].fingerprint = fingerprint;
-        table[idx].count = count;
-    }
-    else if(table[idx].fingerprint == fingerprint){
-        table[idx].count += count;
-    }
-    else{
-        res = new mid_val;
-        if(table[idx].count < count){
-            res->fingerprint = table[idx].fingerprint;
-            res->count = table[idx].count;
-            stringstream ss;
-            ss << res->fingerprint;
-            res->fingerprint_str = ss.str();
-            table[idx].fingerprint = fingerprint;
-            table[idx].count = count;
-        }
-        else{
-            res->fingerprint = fingerprint;
-            res->fingerprint_str = middle_item.fingerprint_str;
-            res->count = count;
-        }
-    }
-    return res;
-}
+
+
